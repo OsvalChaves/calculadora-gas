@@ -60,27 +60,32 @@ def calc_peng_robinson(T_k, P_bar, composition_mole_frac):
     rho_kg_m3 = (P_pa * (M_mix / 1000)) / (Z * R * T_k)
     return Z, rho_kg_m3, M_mix
 
-# Presets y Gestión de Estado
+# Presets
 PRESET_PETROLEO = {"N2":1.94,"CO2":0.138,"CH4":65.5,"C2H6":16.64,"C3H8":10.0,"iC4H10":0.61,"nC4H10":2.61,"iC5H12":0.71,"nC5H12":0.96,"C6H14":0.57,"C7H16":0.31,"C8H18":0.03,"C9H20+":0.0,"O2":0.0,"H2O":0.0}
 PRESET_GAS = {"N2":0.204,"CO2":0.748,"CH4":94.87,"C2H6":3.721,"C3H8":0.376,"iC4H10":0.039,"nC4H10":0.028,"iC5H12":0.0,"nC5H12":0.0,"C6H14":0.015,"C7H16":0.0,"C8H18":0.0,"C9H20+":0.0,"O2":0.0,"H2O":0.0}
 
+# --- INICIALIZAR SESIÓN ---
 if 'df_comp' not in st.session_state:
     data = {"Componente": list(COMPONENTS_DB.keys()), "% Molar": [0.0]*len(COMPONENTS_DB)}
     st.session_state.df_comp = pd.DataFrame(data)
     st.session_state.df_comp.loc[st.session_state.df_comp['Componente']=='CH4', '% Molar'] = 100.0
 
-if 'liq_density' not in st.session_state:
-    st.session_state.liq_density = 850.0 
+# Inicializamos la variable específica del widget de densidad
+if 'liq_density_input' not in st.session_state:
+    st.session_state['liq_density_input'] = 850.0
 
+# Callbacks que actualizan DIRECTAMENTE el valor del widget
 def load_petroleo():
     for i, row in st.session_state.df_comp.iterrows():
         st.session_state.df_comp.at[i, '% Molar'] = PRESET_PETROLEO.get(row['Componente'], 0.0)
-    st.session_state.liq_density = 850.0 
+    # Actualizar densidad para Petróleo
+    st.session_state['liq_density_input'] = 850.0
 
 def load_gas():
     for i, row in st.session_state.df_comp.iterrows():
         st.session_state.df_comp.at[i, '% Molar'] = PRESET_GAS.get(row['Componente'], 0.0)
-    st.session_state.liq_density = 550.0 
+    # Actualizar densidad para Gas/Condensado
+    st.session_state['liq_density_input'] = 550.0
 
 # --- INTERFAZ ---
 st.title("🛢️ Ingeniería: Separadores Bifásicos & Gas")
@@ -123,8 +128,8 @@ with col_l2:
     vol_u = st.selectbox("Unidad Volumen Sep.", ["m3", "ft3"])
     vol_liq_val = st.number_input("Volumen de Separación", 0.0, 1000.0, 2.0)
 with col_l3:
-    rho_liq_val = st.number_input("Densidad Líquido (kg/m3)", value=st.session_state.liq_density, key="liq_density_input")
-    st.session_state.liq_density = rho_liq_val
+    # Aquí usamos la key 'liq_density_input' que se actualiza en los callbacks
+    rho_liq_val = st.number_input("Densidad Líquido (kg/m3)", min_value=1.0, max_value=2000.0, key="liq_density_input")
     
 with col_l4:
     st.write("Resultados Líquido:")
@@ -164,7 +169,8 @@ q_liq_act_m3d = q_liq_m3d
 q_total_act_m3d = q_gas_act_m3d + q_liq_act_m3d
 q_total_m3s = q_total_act_m3d / 86400
 
-rho_liq_kgm3 = st.session_state.liq_density
+# Usamos el valor del widget actualizado
+rho_liq_kgm3 = rho_liq_val 
 mass_gas = q_gas_act_m3d * rho_gas
 mass_liq = q_liq_act_m3d * rho_liq_kgm3
 rho_mix = (mass_gas + mass_liq) / q_total_act_m3d
