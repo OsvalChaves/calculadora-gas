@@ -60,7 +60,7 @@ def calc_peng_robinson(T_k, P_bar, composition_mole_frac):
     rho_kg_m3 = (P_pa * (M_mix / 1000)) / (Z * R * T_k)
     return Z, rho_kg_m3, M_mix
 
-# Presets
+# Presets y Gestión de Estado
 PRESET_PETROLEO = {"N2":1.94,"CO2":0.138,"CH4":65.5,"C2H6":16.64,"C3H8":10.0,"iC4H10":0.61,"nC4H10":2.61,"iC5H12":0.71,"nC5H12":0.96,"C6H14":0.57,"C7H16":0.31,"C8H18":0.03,"C9H20+":0.0,"O2":0.0,"H2O":0.0}
 PRESET_GAS = {"N2":0.204,"CO2":0.748,"CH4":94.87,"C2H6":3.721,"C3H8":0.376,"iC4H10":0.039,"nC4H10":0.028,"iC5H12":0.0,"nC5H12":0.0,"C6H14":0.015,"C7H16":0.0,"C8H18":0.0,"C9H20+":0.0,"O2":0.0,"H2O":0.0}
 
@@ -69,21 +69,28 @@ if 'df_comp' not in st.session_state:
     st.session_state.df_comp = pd.DataFrame(data)
     st.session_state.df_comp.loc[st.session_state.df_comp['Componente']=='CH4', '% Molar'] = 100.0
 
+if 'liq_density' not in st.session_state:
+    st.session_state.liq_density = 850.0 
+
 def load_petroleo():
     for i, row in st.session_state.df_comp.iterrows():
         st.session_state.df_comp.at[i, '% Molar'] = PRESET_PETROLEO.get(row['Componente'], 0.0)
+    st.session_state.liq_density = 850.0 
+
 def load_gas():
     for i, row in st.session_state.df_comp.iterrows():
         st.session_state.df_comp.at[i, '% Molar'] = PRESET_GAS.get(row['Componente'], 0.0)
+    st.session_state.liq_density = 550.0 
 
 # --- INTERFAZ ---
 st.title("🛢️ Ingeniería: Separadores Bifásicos & Gas")
 
 # --- 1. COMPOSICION ---
-st.sidebar.header("1. Gas Composition")
+st.sidebar.header("1. Composición del Gas")
 c1, c2 = st.sidebar.columns(2)
-c1.button("Cargar Petróleo", on_click=load_petroleo)
-c2.button("Cargar Gas", on_click=load_gas)
+c1.button("Pozo Petróleo", on_click=load_petroleo, use_container_width=True)
+c2.button("Pozo Gas", on_click=load_gas, use_container_width=True)
+
 edited_df = st.sidebar.data_editor(st.session_state.df_comp, hide_index=True, height=550, use_container_width=True)
 st.session_state.df_comp = edited_df
 mole_fractions = {r['Componente']: r['% Molar']/100 for i, r in edited_df.iterrows()}
@@ -105,41 +112,37 @@ with col_g4:
     else: u_q = st.selectbox("Unidad Gas", ["m3/d", "m3/h", "ft3/d"])
     q_gas_val = st.number_input("Flujo Gas", 100000.0)
 
-# --- 3. FASE LIQUIDA (NUEVO) ---
+# --- 3. FASE LIQUIDA ---
 st.markdown("---")
 st.header("3. Capacidad de Líquido (API 12J)")
-st.caption("Cálculo de caudal máximo basado en volumen de retención y tiempo de residencia (Eq C.1.6).")
 
 col_l1, col_l2, col_l3, col_l4 = st.columns(4)
 with col_l1:
-    res_time = st.number_input("Tiempo Residencia (min)", 1.0, 60.0, 3.0, help="Típicamente 3-5 min para Oil/Gas")
+    res_time = st.number_input("Tiempo Residencia (min)", 1.0, 60.0, 3.0)
 with col_l2:
     vol_u = st.selectbox("Unidad Volumen Sep.", ["m3", "ft3"])
-    vol_liq_val = st.number_input("Volumen Líquido (NLL)", 0.0, 1000.0, 2.0)
+    vol_liq_val = st.number_input("Volumen de Separación", 0.0, 1000.0, 2.0)
 with col_l3:
-    # Necesitamos densidad liquido para el momentum de mezcla
-    rho_liq_sg = st.number_input("SG Líquido (Agua=1)", 0.5, 1.5, 0.85, help="Gravedad específica para cálculo de momentum.")
+    rho_liq_val = st.number_input("Densidad Líquido (kg/m3)", value=st.session_state.liq_density, key="liq_density_input")
+    st.session_state.liq_density = rho_liq_val
+    
 with col_l4:
     st.write("Resultados Líquido:")
-    
-    # Calc Liquido
-    # Q = V / t
     if vol_u == "m3": vol_m3 = vol_liq_val
     else: vol_m3 = vol_liq_val * 0.0283168
     
-    q_liq_m3d = (vol_m3 / res_time) * 1440.0 # m3/min * 1440 min/d
+    q_liq_m3d = (vol_m3 / res_time) * 1440.0 
     q_liq_bbld = q_liq_m3d * 6.2898
     
     st.success(f"Max Liq: **{q_liq_m3d:.1f} m3/d**")
     st.write(f"Max Liq: **{q_liq_bbld:.0f} bbl/d**")
 
 # --- CALCULOS ---
-# 1. T/P SI
 T_k = t_val + 273.15 if t_u == "°C" else (t_val - 32)*5/9 + 273.15
 P_bar = p_val + 1.013 if p_u == "bar" else (p_val+14.7)/14.5
 Z, rho_gas, M = calc_peng_robinson(T_k, P_bar, mole_fractions)
 
-# 2. Gas Standard conversion
+# Gas Standard
 T_std, P_std = 288.71, 1.01353
 Z_std, _, _ = calc_peng_robinson(T_std, P_std, mole_fractions)
 factor = (P_std/P_bar) * (T_k/T_std) * (Z/Z_std)
@@ -156,30 +159,35 @@ else:
     elif u_q=="ft3/d": qa = q_gas_val * 0.0283168
     q_gas_act_m3d = qa
 
-# 3. Mezcla (Total Inlet)
-q_liq_act_m3d = q_liq_m3d # Liquido se asume incompresible aprox
+# Mezcla y Densidades
+q_liq_act_m3d = q_liq_m3d 
 q_total_act_m3d = q_gas_act_m3d + q_liq_act_m3d
 q_total_m3s = q_total_act_m3d / 86400
 
-# Densidad Mezcla (Homogénea para Momentum)
-rho_liq_kgm3 = rho_liq_sg * 1000
+rho_liq_kgm3 = st.session_state.liq_density
 mass_gas = q_gas_act_m3d * rho_gas
 mass_liq = q_liq_act_m3d * rho_liq_kgm3
 rho_mix = (mass_gas + mass_liq) / q_total_act_m3d
 rho_mix_lb = rho_mix * 0.062428
+rho_gas_lb = rho_gas * 0.062428
+
+# Ve API 14E
+C_erosion = 125
+ve_mix_fts = C_erosion / np.sqrt(rho_mix_lb)
+ve_gas_fts = C_erosion / np.sqrt(rho_gas_lb)
 
 # --- RESULTADOS ---
 st.markdown("---")
-st.header("4. Resultados de Flujo de Entrada")
+st.header("4. Resultados de Flujo")
 c1, c2, c3 = st.columns(3)
 c1.metric("Caudal GAS Actual", f"{q_gas_act_m3d:.1f} m3/d")
 c2.metric("Caudal LIQ Actual", f"{q_liq_act_m3d:.1f} m3/d")
-c3.metric("Caudal TOTAL Entrada", f"{q_total_act_m3d:.1f} m3/d", help="Suma volumétrica a condiciones P, T")
+c3.metric("Caudal TOTAL Entrada", f"{q_total_act_m3d:.1f} m3/d")
 
 c4, c5, c6 = st.columns(3)
 c4.metric("Densidad Gas", f"{rho_gas:.2f} kg/m3")
 c5.metric("Densidad Líquido", f"{rho_liq_kgm3:.1f} kg/m3")
-c6.metric("Densidad Mezcla", f"{rho_mix:.2f} kg/m3", delta_color="off", help="Usada para momentum de entrada")
+c6.metric("Densidad Mezcla", f"{rho_mix:.2f} kg/m3")
 
 # --- BOQUILLAS ---
 st.markdown("---")
@@ -196,10 +204,11 @@ PIPES = {
 }
 
 with col_inlet:
-    st.subheader("🟢 Boquilla de ENTRADA (Mix)")
-    st.caption(f"Verificación con Q_Total ({q_total_act_m3d:.0f} m3/d) y Rho_Mix")
+    st.subheader("🟢 Boquilla ENTRADA (Inlet Vane)")
+    st.caption("Verificación separada: Momentum y Velocidad Erosional")
     
-    max_mom_in = st.number_input("Max Momentum In (lb/ft s2)", 1000, 2000, 1500)
+    max_mom_in = st.number_input("Max Momentum In", 1000, 5000, 3000, help="Valor típico con Vane Inlet: 3000.")
+    st.info(f"Ve Límite (API 14E): **{ve_mix_fts:.1f} ft/s**")
     
     rows = []
     for sz, schs in PIPES.items():
@@ -207,31 +216,34 @@ with col_inlet:
         a_ft2 = np.pi*(id_ref/24)**2
         v = (q_total_m3s * 35.315) / a_ft2
         mom = rho_mix_lb * v**2
-        stt = "✅ OK" if mom <= max_mom_in else "❌ ALTO"
-        rows.append([sz, id_ref, f"{v:.1f}", f"{mom:.0f}", stt])
         
-    st.dataframe(pd.DataFrame(rows, columns=["Size","ID","Vel ft/s","Mom.","Estado"]), hide_index=True)
+        # Check Independiente
+        stt_mom = "✅ OK" if mom <= max_mom_in else "❌ ALTO"
+        stt_ero = "✅ OK" if v <= ve_mix_fts else "❌ EROSION"
+        
+        rows.append([sz, id_ref, f"{v:.1f}", f"{mom:.0f}", stt_mom, stt_ero])
+        
+    st.dataframe(pd.DataFrame(rows, columns=["Size","ID","Vel ft/s","Mom.","Momentum","Erosión"]), hide_index=True)
 
 with col_outlet:
-    st.subheader("🔵 Boquilla Salida GAS")
-    st.caption(f"Verificación solo GAS ({q_gas_act_m3d:.0f} m3/d)")
+    st.subheader("🔵 Boquilla Salida GAS (Vane Pack)")
+    st.caption("Verificación separada: Momentum y Velocidad Erosional")
     
-    max_mom_out = st.number_input("Max Momentum Out", 1000, 5000, 3000)
-    max_vel_out = st.number_input("Max Vel Out (ft/s)", 30, 100, 60)
+    max_mom_out = st.number_input("Max Momentum Out", 1000, 6000, 4000, help="Valor típico con Vane Pack: 3750-4000.")
+    st.info(f"Ve Límite (API 14E): **{ve_gas_fts:.1f} ft/s**")
     
     rows_out = []
     q_gas_m3s = q_gas_act_m3d / 86400
-    rho_gas_lb = rho_gas * 0.062428
     
     for sz, schs in PIPES.items():
         id_ref = schs.get("Sch40", list(schs.values())[0])
         a_ft2 = np.pi*(id_ref/24)**2
         v = (q_gas_m3s * 35.315) / a_ft2
         mom = rho_gas_lb * v**2
-        fail = []
-        if mom > max_mom_out: fail.append("Mom")
-        if v > max_vel_out: fail.append("Vel")
-        stt = "✅ OK" if not fail else "❌"
-        rows_out.append([sz, id_ref, f"{v:.1f}", f"{mom:.0f}", stt])
         
-    st.dataframe(pd.DataFrame(rows_out, columns=["Size","ID","Vel ft/s","Mom.","Estado"]), hide_index=True)
+        stt_mom = "✅ OK" if mom <= max_mom_out else "❌ ALTO"
+        stt_ero = "✅ OK" if v <= ve_gas_fts else "❌ EROSION"
+        
+        rows_out.append([sz, id_ref, f"{v:.1f}", f"{mom:.0f}", stt_mom, stt_ero])
+        
+    st.dataframe(pd.DataFrame(rows_out, columns=["Size","ID","Vel ft/s","Mom.","Momentum","Erosión"]), hide_index=True)
