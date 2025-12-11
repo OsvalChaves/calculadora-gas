@@ -70,21 +70,18 @@ if 'df_comp' not in st.session_state:
     st.session_state.df_comp = pd.DataFrame(data)
     st.session_state.df_comp.loc[st.session_state.df_comp['Componente']=='CH4', '% Molar'] = 100.0
 
-# Inicializamos la variable específica del widget de densidad
 if 'liq_density_input' not in st.session_state:
     st.session_state['liq_density_input'] = 850.0
 
-# Callbacks que actualizan DIRECTAMENTE el valor del widget
+# Callbacks
 def load_petroleo():
     for i, row in st.session_state.df_comp.iterrows():
         st.session_state.df_comp.at[i, '% Molar'] = PRESET_PETROLEO.get(row['Componente'], 0.0)
-    # Actualizar densidad para Petróleo
     st.session_state['liq_density_input'] = 850.0
 
 def load_gas():
     for i, row in st.session_state.df_comp.iterrows():
         st.session_state.df_comp.at[i, '% Molar'] = PRESET_GAS.get(row['Componente'], 0.0)
-    # Actualizar densidad para Gas/Condensado
     st.session_state['liq_density_input'] = 550.0
 
 # --- INTERFAZ ---
@@ -128,7 +125,6 @@ with col_l2:
     vol_u = st.selectbox("Unidad Volumen Sep.", ["m3", "ft3"])
     vol_liq_val = st.number_input("Volumen de Separación", 0.0, 1000.0, 2.0)
 with col_l3:
-    # Aquí usamos la key 'liq_density_input' que se actualiza en los callbacks
     rho_liq_val = st.number_input("Densidad Líquido (kg/m3)", min_value=1.0, max_value=2000.0, key="liq_density_input")
     
 with col_l4:
@@ -199,14 +195,12 @@ c6.metric("Densidad Mezcla", f"{rho_mix:.2f} kg/m3")
 st.markdown("---")
 col_inlet, col_outlet = st.columns(2)
 
+# Definimos Tuberias
 PIPES = {
-    "2 inch":  {"Sch40": 2.067, "Sch80": 1.939, "Sch160": 1.687},
-    "3 inch":  {"Sch40": 3.068, "Sch80": 2.900, "Sch160": 2.624},
-    "4 inch":  {"Sch40": 4.026, "Sch80": 3.826, "Sch160": 3.438},
-    "6 inch":  {"Sch40": 6.065, "Sch80": 5.761, "Sch160": 5.187},
-    "8 inch":  {"Sch40": 7.981, "Sch80": 7.625, "Sch160": 6.813},
-    "10 inch": {"Sch40": 10.02, "Sch80": 9.562, "Sch160": 8.500},
-    "12 inch": {"SchSTD": 12.00, "SchXS": 11.75, "Sch160": 10.12},
+    "4 inch":  {"Sch40": 4.026, "Sch80": 3.826},
+    "6 inch":  {"Sch40": 6.065, "Sch80": 5.761},
+    "8 inch":  {"Sch40": 7.981, "Sch80": 7.625},
+    "10 inch": {"Sch40": 10.02, "Sch80": 9.562},
 }
 
 with col_inlet:
@@ -214,42 +208,47 @@ with col_inlet:
     st.caption("Verificación separada: Momentum y Velocidad Erosional")
     
     max_mom_in = st.number_input("Max Momentum In", 1000, 5000, 3000, help="Valor típico con Vane Inlet: 3000.")
-    st.info(f"Ve Límite (API 14E): **{ve_mix_fts:.1f} ft/s**")
+    # Ve en ft/s y m/s
+    st.info(f"Ve Límite (API 14E): **{ve_mix_fts:.1f} ft/s** ({ve_mix_fts*0.3048:.2f} m/s)")
     
     rows = []
-    for sz, schs in PIPES.items():
-        id_ref = schs.get("Sch80", list(schs.values())[0])
-        a_ft2 = np.pi*(id_ref/24)**2
-        v = (q_total_m3s * 35.315) / a_ft2
-        mom = rho_mix_lb * v**2
+    # Loop explícito para cada Sch
+    for sz in PIPES:
+        for sch in ["Sch40", "Sch80"]:
+            id_ref = PIPES[sz][sch]
+            a_ft2 = np.pi*(id_ref/24)**2
+            v = (q_total_m3s * 35.315) / a_ft2
+            mom = rho_mix_lb * v**2
+            
+            # Check Independiente
+            stt_mom = "✅ OK" if mom <= max_mom_in else "❌ ALTO"
+            stt_ero = "✅ OK" if v <= ve_mix_fts else "❌ EROSION"
+            
+            rows.append([sz, sch, id_ref, f"{v:.1f}", f"{mom:.0f}", stt_mom, stt_ero])
         
-        # Check Independiente
-        stt_mom = "✅ OK" if mom <= max_mom_in else "❌ ALTO"
-        stt_ero = "✅ OK" if v <= ve_mix_fts else "❌ EROSION"
-        
-        rows.append([sz, id_ref, f"{v:.1f}", f"{mom:.0f}", stt_mom, stt_ero])
-        
-    st.dataframe(pd.DataFrame(rows, columns=["Size","ID","Vel ft/s","Mom.","Momentum","Erosión"]), hide_index=True)
+    st.dataframe(pd.DataFrame(rows, columns=["Size","Sch", "ID","Vel ft/s","Mom.","Momentum","Erosión"]), hide_index=True)
 
 with col_outlet:
     st.subheader("🔵 Boquilla Salida GAS (Vane Pack)")
     st.caption("Verificación separada: Momentum y Velocidad Erosional")
     
     max_mom_out = st.number_input("Max Momentum Out", 1000, 6000, 4000, help="Valor típico con Vane Pack: 3750-4000.")
-    st.info(f"Ve Límite (API 14E): **{ve_gas_fts:.1f} ft/s**")
+    # Ve en ft/s y m/s
+    st.info(f"Ve Límite (API 14E): **{ve_gas_fts:.1f} ft/s** ({ve_gas_fts*0.3048:.2f} m/s)")
     
     rows_out = []
     q_gas_m3s = q_gas_act_m3d / 86400
     
-    for sz, schs in PIPES.items():
-        id_ref = schs.get("Sch40", list(schs.values())[0])
-        a_ft2 = np.pi*(id_ref/24)**2
-        v = (q_gas_m3s * 35.315) / a_ft2
-        mom = rho_gas_lb * v**2
+    for sz in PIPES:
+        for sch in ["Sch40", "Sch80"]:
+            id_ref = PIPES[sz][sch]
+            a_ft2 = np.pi*(id_ref/24)**2
+            v = (q_gas_m3s * 35.315) / a_ft2
+            mom = rho_gas_lb * v**2
+            
+            stt_mom = "✅ OK" if mom <= max_mom_out else "❌ ALTO"
+            stt_ero = "✅ OK" if v <= ve_gas_fts else "❌ EROSION"
+            
+            rows_out.append([sz, sch, id_ref, f"{v:.1f}", f"{mom:.0f}", stt_mom, stt_ero])
         
-        stt_mom = "✅ OK" if mom <= max_mom_out else "❌ ALTO"
-        stt_ero = "✅ OK" if v <= ve_gas_fts else "❌ EROSION"
-        
-        rows_out.append([sz, id_ref, f"{v:.1f}", f"{mom:.0f}", stt_mom, stt_ero])
-        
-    st.dataframe(pd.DataFrame(rows_out, columns=["Size","ID","Vel ft/s","Mom.","Momentum","Erosión"]), hide_index=True)
+    st.dataframe(pd.DataFrame(rows_out, columns=["Size","Sch","ID","Vel ft/s","Mom.","Momentum","Erosión"]), hide_index=True)
